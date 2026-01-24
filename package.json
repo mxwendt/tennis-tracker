@@ -1,0 +1,23 @@
+{
+  "name": "tennis-tracker",
+  "version": "0.0.0",
+  "homepage": "https://github.com/mxwendt/tennis-tracker#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mxwendt/tennis-tracker.git"
+  },
+  "scripts": {
+    "dev": "elm-watch hot",
+    "build": "elm-watch make --optimize"
+  },
+  "devDependencies": {
+    "elm-format": "0.8.8",
+    "elm-watch": "1.2.3"
+  },
+  "dependencies": {
+    "elm": "0.19.1-6"
+  },
+  "volta": {
+    "node": "24.13.0"
+  }
+}
