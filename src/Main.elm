@@ -24,15 +24,22 @@ type Player
     | Player2
 
 
+type MatchStatus
+    = InProgress
+    | Finished Player
+
+
 type alias Match =
     { players : ( Player, Player )
     , score : ( Int, Int )
     , firstSet : ( Int, Int )
     , secondSet : ( Int, Int )
-    , matchTieBreak : ( Int, Int )
+    , thirdSet : ( Int, Int )
     , isDeuce : Bool
     , isServing : Player
     , advantage : Maybe Player
+    , matchStatus : MatchStatus
+    , currentSet : Int
     }
 
 
@@ -46,10 +53,12 @@ init =
     , score = ( 0, 0 )
     , firstSet = ( 0, 0 )
     , secondSet = ( 0, 0 )
-    , matchTieBreak = ( 0, 0 )
+    , thirdSet = ( 0, 0 )
     , isDeuce = False
     , isServing = Player1
     , advantage = Nothing
+    , matchStatus = InProgress
+    , currentSet = 1
     }
 
 
@@ -76,59 +85,19 @@ update msg model =
                 | score = ( 0, 0 )
                 , firstSet = ( 0, 0 )
                 , secondSet = ( 0, 0 )
-                , matchTieBreak = ( 0, 0 )
+                , thirdSet = ( 0, 0 )
                 , isDeuce = False
                 , isServing = Player1
                 , advantage = Nothing
+                , matchStatus = InProgress
+                , currentSet = 1
             }
 
         Player1Scored ->
-            let
-                ( p1, p2 ) =
-                    model.score
-
-                ( newScore, newAdvantage, isGameWon ) =
-                    updateScore Player1 ( p1, p2 ) model.advantage
-            in
-            if isGameWon then
-                { model
-                    | score = ( 0, 0 )
-                    , firstSet = updateSet Player1 model.firstSet
-                    , isDeuce = False
-                    , isServing = switchServer model.isServing
-                    , advantage = Nothing
-                }
-
-            else
-                { model
-                    | score = newScore
-                    , advantage = newAdvantage
-                    , isDeuce = isDeuce newScore
-                }
+            updatePlayerScored Player1 model
 
         Player2Scored ->
-            let
-                ( p1, p2 ) =
-                    model.score
-
-                ( newScore, newAdvantage, isGameWon ) =
-                    updateScore Player2 ( p1, p2 ) model.advantage
-            in
-            if isGameWon then
-                { model
-                    | score = ( 0, 0 )
-                    , firstSet = updateSet Player2 model.firstSet
-                    , isDeuce = False
-                    , isServing = switchServer model.isServing
-                    , advantage = Nothing
-                }
-
-            else
-                { model
-                    | score = newScore
-                    , advantage = newAdvantage
-                    , isDeuce = isDeuce newScore
-                }
+            updatePlayerScored Player2 model
 
         Player1Fault ->
             update Player2Scored model
@@ -150,6 +119,165 @@ update msg model =
                 , isServing = switchServer model.isServing
                 , advantage = Nothing
             }
+
+
+updatePlayerScored : Player -> Model -> Model
+updatePlayerScored player model =
+    let
+        ( p1, p2 ) =
+            model.score
+
+        ( newScore, newAdvantage, isGameWon ) =
+            updateScore player ( p1, p2 ) model.advantage
+    in
+    if isGameWon then
+        let
+            newSetScore =
+                case model.currentSet of
+                    1 ->
+                        updateSet player model.firstSet
+
+                    2 ->
+                        updateSet player model.secondSet
+
+                    3 ->
+                        updateSet player model.thirdSet
+
+                    _ ->
+                        ( 0, 0 )
+
+            isSetWon =
+                checkSetWon newSetScore
+
+            setsWon =
+                getSetsWon model player
+
+            updatedModel =
+                case model.currentSet of
+                    1 ->
+                        { model | firstSet = newSetScore }
+
+                    2 ->
+                        { model | secondSet = newSetScore }
+
+                    3 ->
+                        { model | thirdSet = newSetScore }
+
+                    _ ->
+                        model
+        in
+        if isSetWon then
+            if setsWon + 1 >= 2 then
+                -- Match won
+                { updatedModel
+                    | score = ( 0, 0 )
+                    , isDeuce = False
+                    , isServing = switchServer model.isServing
+                    , advantage = Nothing
+                    , matchStatus = Finished player
+                }
+
+            else
+                -- Set won, move to next set
+                { updatedModel
+                    | score = ( 0, 0 )
+                    , isDeuce = False
+                    , isServing = switchServer model.isServing
+                    , advantage = Nothing
+                    , currentSet = model.currentSet + 1
+                }
+
+        else
+            -- Game won, continue in current set
+            { updatedModel
+                | score = ( 0, 0 )
+                , isDeuce = False
+                , isServing = switchServer model.isServing
+                , advantage = Nothing
+            }
+
+    else
+        { model
+            | score = newScore
+            , advantage = newAdvantage
+            , isDeuce = isDeuce newScore
+        }
+
+
+getSetsWon : Model -> Player -> Int
+getSetsWon model player =
+    let
+        set1Won =
+            if checkSetWon model.firstSet then
+                case player of
+                    Player1 ->
+                        if Tuple.first model.firstSet > Tuple.second model.firstSet then
+                            1
+
+                        else
+                            0
+
+                    Player2 ->
+                        if Tuple.second model.firstSet > Tuple.first model.firstSet then
+                            1
+
+                        else
+                            0
+
+            else
+                0
+
+        set2Won =
+            if checkSetWon model.secondSet then
+                case player of
+                    Player1 ->
+                        if Tuple.first model.secondSet > Tuple.second model.secondSet then
+                            1
+
+                        else
+                            0
+
+                    Player2 ->
+                        if Tuple.second model.secondSet > Tuple.first model.secondSet then
+                            1
+
+                        else
+                            0
+
+            else
+                0
+
+        set3Won =
+            if checkSetWon model.thirdSet then
+                case player of
+                    Player1 ->
+                        if Tuple.first model.thirdSet > Tuple.second model.thirdSet then
+                            1
+
+                        else
+                            0
+
+                    Player2 ->
+                        if Tuple.second model.thirdSet > Tuple.first model.thirdSet then
+                            1
+
+                        else
+                            0
+
+            else
+                0
+    in
+    set1Won + set2Won + set3Won
+
+
+checkSetWon : ( Int, Int ) -> Bool
+checkSetWon ( s1, s2 ) =
+    -- A set is won when a player reaches 6 games with at least 2 games lead
+    -- or wins a tiebreak at 7-6
+    (s1 >= 6 && s1 - s2 >= 2)
+        || (s2 >= 6 && s2 - s1 >= 2)
+        || (s1 == 7 && s2 == 6)
+        || (s1 == 6 && s2 == 7)
 
 
 updateScore : Player -> ( Int, Int ) -> Maybe Player -> ( ( Int, Int ), Maybe Player, Bool )
@@ -246,7 +374,14 @@ view model =
 viewMatch : Model -> Html Msg
 viewMatch model =
     div [ class "mx-auto max-w-md p-4 bg-blue-900" ]
-        [ div [ class "grid grid-cols-2 gap-4" ]
+        [ case model.matchStatus of
+            Finished winner ->
+                div [ class "mb-4 p-4 bg-green-600 text-white text-center text-xl font-bold" ]
+                    [ text ("🏆 " ++ toName winner model.isServing ++ " wins the match! 🏆") ]
+
+            InProgress ->
+                text ""
+        , div [ class "grid grid-cols-2 gap-4" ]
             [ div [ class "text-center text-xl font-bold uppercase text-white" ] [ text (toName (Tuple.first model.players) model.isServing) ]
             , div [ class "text-center text-xl font-bold uppercase text-white" ] [ text (toName (Tuple.second model.players) model.isServing) ]
             , viewScorePlayer1 model
@@ -254,21 +389,22 @@ viewMatch model =
             , div [ class "flex mx-auto border mb-8" ]
                 [ div [ class "p-2" ] [ text (String.fromInt (Tuple.first model.firstSet)) ]
                 , div [ class "p-2 border-l border-gray-300 border-dotted" ] [ text (String.fromInt (Tuple.first model.secondSet)) ]
-                , div [ class "p-2 border-l border-gray-300 border-dotted" ] [ text (String.fromInt (Tuple.first model.matchTieBreak)) ]
+                , div [ class "p-2 border-l border-gray-300 border-dotted" ] [ text (String.fromInt (Tuple.first model.thirdSet)) ]
                 ]
             , div [ class "flex mx-auto border mb-8" ]
                 [ div [ class "p-2" ] [ text (String.fromInt (Tuple.second model.firstSet)) ]
                 , div [ class "p-2 border-l border-gray-300 border-dotted" ] [ text (String.fromInt (Tuple.second model.secondSet)) ]
-                , div [ class "p-2 border-l border-gray-300 border-dotted" ] [ text (String.fromInt (Tuple.second model.matchTieBreak)) ]
+                , div [ class "p-2 border-l border-gray-300 border-dotted" ] [ text (String.fromInt (Tuple.second model.thirdSet)) ]
                 ]
-            , viewButton "Winner" Player1Scored
-            , viewButton "Winner" Player2Scored
-            , viewButton "Fault" Player1Fault
-            , viewButton "Fault" Player2Fault
-            , viewButton "Unforced Error" Player1UnforcedError
-            , viewButton "Unforced Error" Player2UnforcedError
+            , viewButton "Winner" Player1Scored (model.matchStatus == InProgress)
+            , viewButton "Winner" Player2Scored (model.matchStatus == InProgress)
+            , viewButton "Fault" Player1Fault (model.matchStatus == InProgress)
+            , viewButton "Fault" Player2Fault (model.matchStatus == InProgress)
+            , viewButton "Unforced Error" Player1UnforcedError (model.matchStatus == InProgress)
+            , viewButton "Unforced Error" Player2UnforcedError (model.matchStatus == InProgress)
             ]
         , button [ onClick Undo, class "mt-4 w-full cursor-pointer py-2 px-4 border text-center text-black bg-blue-500" ] [ text "Undo" ]
+        , button [ onClick StartMatch, class "mt-2 w-full cursor-pointer py-2 px-4 border text-center text-white bg-green-600" ] [ text "New Match" ]
         , div [ class "mt-4 w-full text-center" ]
             [ viewSummary model "Set 1 Summary"
             , viewSummary model "Set 2 Summary"
@@ -305,9 +441,20 @@ viewScorePlayer2 model =
             ]
 
 
-viewButton : String -> Msg -> Html Msg
-viewButton label msg =
-    button [ onClick msg, class "cursor-pointer py-2 px-4 border text-center" ] [ text label ]
+viewButton : String -> Msg -> Bool -> Html Msg
+viewButton label msg enabled =
+    button
+        [ onClick msg
+        , class "cursor-pointer py-2 px-4 border text-center"
+        , class
+            (if enabled then
+                "opacity-100"
+
+             else
+                "opacity-50 cursor-not-allowed"
+            )
+        ]
+        [ text label ]
 
 
 viewSummary : Model -> String -> Html Msg
