@@ -29,6 +29,12 @@ type MatchStatus
     | Finished Player
 
 
+type alias SetStats =
+    { winners : ( Int, Int )
+    , unforcedErrors : ( Int, Int )
+    }
+
+
 type alias Match =
     { players : ( Player, Player )
     , score : ( Int, Int )
@@ -40,6 +46,9 @@ type alias Match =
     , advantage : Maybe Player
     , matchStatus : MatchStatus
     , currentSet : Int
+    , set1Stats : SetStats
+    , set2Stats : SetStats
+    , set3Stats : SetStats
     }
 
 
@@ -47,6 +56,13 @@ type alias Model =
     { match : Match
     , history : List Match
     , confirmingNewMatch : Bool
+    }
+
+
+initialSetStats : SetStats
+initialSetStats =
+    { winners = ( 0, 0 )
+    , unforcedErrors = ( 0, 0 )
     }
 
 
@@ -62,6 +78,9 @@ initialMatch =
     , advantage = Nothing
     , matchStatus = InProgress
     , currentSet = 1
+    , set1Stats = initialSetStats
+    , set2Stats = initialSetStats
+    , set3Stats = initialSetStats
     }
 
 
@@ -113,10 +132,28 @@ update msg model =
             { model | confirmingNewMatch = False }
 
         Player1Scored ->
-            withHistory model (updatePlayerScored Player1 model.match)
+            let
+                currentSet =
+                    model.match.currentSet
+
+                newMatch =
+                    model.match
+                        |> updatePlayerScored Player1
+                        |> addWinner Player1 currentSet
+            in
+            withHistory model newMatch
 
         Player2Scored ->
-            withHistory model (updatePlayerScored Player2 model.match)
+            let
+                currentSet =
+                    model.match.currentSet
+
+                newMatch =
+                    model.match
+                        |> updatePlayerScored Player2
+                        |> addWinner Player2 currentSet
+            in
+            withHistory model newMatch
 
         Player1Fault ->
             withHistory model (updatePlayerScored Player2 model.match)
@@ -125,10 +162,28 @@ update msg model =
             withHistory model (updatePlayerScored Player1 model.match)
 
         Player1UnforcedError ->
-            withHistory model (updatePlayerScored Player2 model.match)
+            let
+                currentSet =
+                    model.match.currentSet
+
+                newMatch =
+                    model.match
+                        |> updatePlayerScored Player2
+                        |> addUnforcedError Player1 currentSet
+            in
+            withHistory model newMatch
 
         Player2UnforcedError ->
-            withHistory model (updatePlayerScored Player1 model.match)
+            let
+                currentSet =
+                    model.match.currentSet
+
+                newMatch =
+                    model.match
+                        |> updatePlayerScored Player1
+                        |> addUnforcedError Player2 currentSet
+            in
+            withHistory model newMatch
 
         Undo ->
             case model.history of
@@ -333,6 +388,73 @@ switchServer player =
             Player1
 
 
+addWinnerToSetStats : Player -> SetStats -> SetStats
+addWinnerToSetStats player stats =
+    case player of
+        Player1 ->
+            { stats | winners = ( Tuple.first stats.winners + 1, Tuple.second stats.winners ) }
+
+        Player2 ->
+            { stats | winners = ( Tuple.first stats.winners, Tuple.second stats.winners + 1 ) }
+
+
+addUnforcedErrorToSetStats : Player -> SetStats -> SetStats
+addUnforcedErrorToSetStats player stats =
+    case player of
+        Player1 ->
+            { stats | unforcedErrors = ( Tuple.first stats.unforcedErrors + 1, Tuple.second stats.unforcedErrors ) }
+
+        Player2 ->
+            { stats | unforcedErrors = ( Tuple.first stats.unforcedErrors, Tuple.second stats.unforcedErrors + 1 ) }
+
+
+addWinner : Player -> Int -> Match -> Match
+addWinner player currentSet match =
+    case currentSet of
+        1 ->
+            { match | set1Stats = addWinnerToSetStats player match.set1Stats }
+
+        2 ->
+            { match | set2Stats = addWinnerToSetStats player match.set2Stats }
+
+        3 ->
+            { match | set3Stats = addWinnerToSetStats player match.set3Stats }
+
+        _ ->
+            match
+
+
+addUnforcedError : Player -> Int -> Match -> Match
+addUnforcedError player currentSet match =
+    case currentSet of
+        1 ->
+            { match | set1Stats = addUnforcedErrorToSetStats player match.set1Stats }
+
+        2 ->
+            { match | set2Stats = addUnforcedErrorToSetStats player match.set2Stats }
+
+        3 ->
+            { match | set3Stats = addUnforcedErrorToSetStats player match.set3Stats }
+
+        _ ->
+            match
+
+
+matchTotalStats : Match -> SetStats
+matchTotalStats match =
+    let
+        sumTuples ( a1, b1 ) ( a2, b2 ) =
+            ( a1 + a2, b1 + b2 )
+    in
+    { winners =
+        sumTuples match.set1Stats.winners
+            (sumTuples match.set2Stats.winners match.set3Stats.winners)
+    , unforcedErrors =
+        sumTuples match.set1Stats.unforcedErrors
+            (sumTuples match.set2Stats.unforcedErrors match.set3Stats.unforcedErrors)
+    }
+
+
 
 -- VIEW
 
@@ -409,9 +531,10 @@ viewMatch model =
         , button [ onClick RequestNewMatch, class "mt-2 w-full cursor-pointer py-2 px-4 border text-center text-white bg-green-600" ] [ text "New Match" ]
         , viewNewMatchDialog model.confirmingNewMatch
         , div [ class "mt-4 w-full text-center" ]
-            [ viewSummary match "Set 1 Summary"
-            , viewSummary match "Set 2 Summary"
-            , viewSummary match "Match Summary"
+            [ viewSummary "Set 1 Summary" match.set1Stats
+            , viewSummary "Set 2 Summary" match.set2Stats
+            , viewSummary "Set 3 Summary" match.set3Stats
+            , viewSummary "Match Summary" (matchTotalStats match)
             ]
         ]
 
@@ -495,17 +618,24 @@ viewButton label msg enabled =
         [ text label ]
 
 
-viewSummary : Match -> String -> Html Msg
-viewSummary match label =
+viewSummary : String -> SetStats -> Html Msg
+viewSummary label stats =
+    let
+        ( winners1, winners2 ) =
+            stats.winners
+
+        ( errors1, errors2 ) =
+            stats.unforcedErrors
+    in
     details [ class "w-full", attribute "open" "open" ]
         [ summary [ class "text-left p-4 border-b border-gray-300 cursor-pointer" ] [ text label ]
         , table [ class "w-full border border-t-0" ]
-            [ viewSummaryRow "1st Serve %" (String.fromInt (Tuple.first match.score)) (String.fromInt (Tuple.second match.score))
-            , viewSummaryRow "1st Serve Pts Won %" (String.fromInt (Tuple.first match.score)) (String.fromInt (Tuple.second match.score))
-            , viewSummaryRow "2nd Serve Pts Won %" (String.fromInt (Tuple.first match.score)) (String.fromInt (Tuple.second match.score))
-            , viewSummaryRow "Winners" (String.fromInt (Tuple.first match.score)) (String.fromInt (Tuple.second match.score))
-            , viewSummaryRow "Unforced Errors" (String.fromInt (Tuple.first match.score)) (String.fromInt (Tuple.second match.score))
-            , viewSummaryRow "Break Points Won" (String.fromInt (Tuple.first match.score)) (String.fromInt (Tuple.second match.score))
+            [ viewSummaryRow "1st Serve %" "--" "--"
+            , viewSummaryRow "1st Serve Pts Won %" "--" "--"
+            , viewSummaryRow "2nd Serve Pts Won %" "--" "--"
+            , viewSummaryRow "Winners" (String.fromInt winners1) (String.fromInt winners2)
+            , viewSummaryRow "Unforced Errors" (String.fromInt errors1) (String.fromInt errors2)
+            , viewSummaryRow "Break Points Won" "--" "--"
             ]
         ]
 
