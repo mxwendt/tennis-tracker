@@ -32,6 +32,8 @@ type MatchStatus
 type alias SetStats =
     { winners : ( Int, Int )
     , unforcedErrors : ( Int, Int )
+    , breakPointsWon : ( Int, Int )
+    , breakPointsPlayed : ( Int, Int )
     }
 
 
@@ -63,6 +65,8 @@ initialSetStats : SetStats
 initialSetStats =
     { winners = ( 0, 0 )
     , unforcedErrors = ( 0, 0 )
+    , breakPointsWon = ( 0, 0 )
+    , breakPointsPlayed = ( 0, 0 )
     }
 
 
@@ -136,10 +140,14 @@ update msg model =
                 currentSet =
                     model.match.currentSet
 
-                newMatch =
+                originalMatch =
                     model.match
+
+                newMatch =
+                    originalMatch
                         |> updatePlayerScored Player1
                         |> addWinner Player1 currentSet
+                        |> trackBreakPoints Player1 originalMatch
             in
             withHistory model newMatch
 
@@ -148,28 +156,54 @@ update msg model =
                 currentSet =
                     model.match.currentSet
 
-                newMatch =
+                originalMatch =
                     model.match
+
+                newMatch =
+                    originalMatch
                         |> updatePlayerScored Player2
                         |> addWinner Player2 currentSet
+                        |> trackBreakPoints Player2 originalMatch
             in
             withHistory model newMatch
 
         Player1Fault ->
-            withHistory model (updatePlayerScored Player2 model.match)
+            let
+                originalMatch =
+                    model.match
+
+                newMatch =
+                    originalMatch
+                        |> updatePlayerScored Player2
+                        |> trackBreakPoints Player2 originalMatch
+            in
+            withHistory model newMatch
 
         Player2Fault ->
-            withHistory model (updatePlayerScored Player1 model.match)
+            let
+                originalMatch =
+                    model.match
+
+                newMatch =
+                    originalMatch
+                        |> updatePlayerScored Player1
+                        |> trackBreakPoints Player1 originalMatch
+            in
+            withHistory model newMatch
 
         Player1UnforcedError ->
             let
                 currentSet =
                     model.match.currentSet
 
-                newMatch =
+                originalMatch =
                     model.match
+
+                newMatch =
+                    originalMatch
                         |> updatePlayerScored Player2
                         |> addUnforcedError Player1 currentSet
+                        |> trackBreakPoints Player2 originalMatch
             in
             withHistory model newMatch
 
@@ -178,10 +212,14 @@ update msg model =
                 currentSet =
                     model.match.currentSet
 
-                newMatch =
+                originalMatch =
                     model.match
+
+                newMatch =
+                    originalMatch
                         |> updatePlayerScored Player1
                         |> addUnforcedError Player2 currentSet
+                        |> trackBreakPoints Player1 originalMatch
             in
             withHistory model newMatch
 
@@ -408,6 +446,32 @@ addUnforcedErrorToSetStats player stats =
             { stats | unforcedErrors = ( Tuple.first stats.unforcedErrors, Tuple.second stats.unforcedErrors + 1 ) }
 
 
+addBreakPointToSetStats : Player -> Bool -> SetStats -> SetStats
+addBreakPointToSetStats player won stats =
+    let
+        updatedPlayed =
+            case player of
+                Player1 ->
+                    ( Tuple.first stats.breakPointsPlayed + 1, Tuple.second stats.breakPointsPlayed )
+
+                Player2 ->
+                    ( Tuple.first stats.breakPointsPlayed, Tuple.second stats.breakPointsPlayed + 1 )
+
+        updatedWon =
+            if won then
+                case player of
+                    Player1 ->
+                        ( Tuple.first stats.breakPointsWon + 1, Tuple.second stats.breakPointsWon )
+
+                    Player2 ->
+                        ( Tuple.first stats.breakPointsWon, Tuple.second stats.breakPointsWon + 1 )
+
+            else
+                stats.breakPointsWon
+    in
+    { stats | breakPointsPlayed = updatedPlayed, breakPointsWon = updatedWon }
+
+
 addWinner : Player -> Int -> Match -> Match
 addWinner player currentSet match =
     case currentSet of
@@ -440,6 +504,82 @@ addUnforcedError player currentSet match =
             match
 
 
+{-| Given the player who scored, the match state _before_ the point was played,
+and the match state _after_, detect any break-point situations and update the
+appropriate set's stats.
+
+Two cases are handled per point:
+
+1.  The scoring player was in a break-point position (returner at game point)
+    → they converted: increment their opportunities **and** wins.
+2.  The _other_ player was in a break-point position (which they just lost)
+    → increment only their opportunities (break point saved).
+
+-}
+trackBreakPoints : Player -> Match -> Match -> Match
+trackBreakPoints scoringPlayer originalMatch resultMatch =
+    let
+        ( p1, p2 ) =
+            originalMatch.score
+
+        isBreakPointFor returner =
+            case returner of
+                Player1 ->
+                    originalMatch.isServing
+                        == Player2
+                        && ((p1 == 40 && p2 < 40) || (isDeuce ( p1, p2 ) && originalMatch.advantage == Just Player1))
+
+                Player2 ->
+                    originalMatch.isServing
+                        == Player1
+                        && ((p2 == 40 && p1 < 40) || (isDeuce ( p1, p2 ) && originalMatch.advantage == Just Player2))
+
+        otherPlayer =
+            case scoringPlayer of
+                Player1 ->
+                    Player2
+
+                Player2 ->
+                    Player1
+
+        hasBPForScoring =
+            isBreakPointFor scoringPlayer
+
+        hasBPForOther =
+            isBreakPointFor otherPlayer
+
+        currentSet =
+            originalMatch.currentSet
+
+        applyToCurrentSet updater match =
+            case currentSet of
+                1 ->
+                    { match | set1Stats = updater match.set1Stats }
+
+                2 ->
+                    { match | set2Stats = updater match.set2Stats }
+
+                3 ->
+                    { match | set3Stats = updater match.set3Stats }
+
+                _ ->
+                    match
+    in
+    resultMatch
+        |> (if hasBPForScoring then
+                applyToCurrentSet (addBreakPointToSetStats scoringPlayer True)
+
+            else
+                identity
+           )
+        |> (if hasBPForOther then
+                applyToCurrentSet (addBreakPointToSetStats otherPlayer False)
+
+            else
+                identity
+           )
+
+
 matchTotalStats : Match -> SetStats
 matchTotalStats match =
     let
@@ -452,6 +592,12 @@ matchTotalStats match =
     , unforcedErrors =
         sumTuples match.set1Stats.unforcedErrors
             (sumTuples match.set2Stats.unforcedErrors match.set3Stats.unforcedErrors)
+    , breakPointsWon =
+        sumTuples match.set1Stats.breakPointsWon
+            (sumTuples match.set2Stats.breakPointsWon match.set3Stats.breakPointsWon)
+    , breakPointsPlayed =
+        sumTuples match.set1Stats.breakPointsPlayed
+            (sumTuples match.set2Stats.breakPointsPlayed match.set3Stats.breakPointsPlayed)
     }
 
 
@@ -626,6 +772,15 @@ viewSummary label stats =
 
         ( errors1, errors2 ) =
             stats.unforcedErrors
+
+        ( bpWon1, bpWon2 ) =
+            stats.breakPointsWon
+
+        ( bpPlayed1, bpPlayed2 ) =
+            stats.breakPointsPlayed
+
+        formatBP won played =
+            String.fromInt won ++ "/" ++ String.fromInt played
     in
     details [ class "w-full", attribute "open" "open" ]
         [ summary [ class "text-left p-4 border-b border-gray-300 cursor-pointer" ] [ text label ]
@@ -635,7 +790,7 @@ viewSummary label stats =
             , viewSummaryRow "2nd Serve Pts Won %" "--" "--"
             , viewSummaryRow "Winners" (String.fromInt winners1) (String.fromInt winners2)
             , viewSummaryRow "Unforced Errors" (String.fromInt errors1) (String.fromInt errors2)
-            , viewSummaryRow "Break Points Won" "--" "--"
+            , viewSummaryRow "Break Points Won" (formatBP bpWon1 bpPlayed1) (formatBP bpWon2 bpPlayed2)
             ]
         ]
 
