@@ -1,7 +1,7 @@
 module Main exposing (Model, Msg(..), init, main, update, view)
 
 import Browser
-import Html exposing (Html, button, details, div, summary, table, td, text, tr)
+import Html exposing (Html, button, details, div, p, summary, table, td, text, tr)
 import Html.Attributes exposing (attribute, class, disabled)
 import Html.Events exposing (onClick)
 
@@ -46,6 +46,7 @@ type alias Match =
 type alias Model =
     { match : Match
     , history : List Match
+    , confirmingNewMatch : Bool
     }
 
 
@@ -68,6 +69,7 @@ init : Model
 init =
     { match = initialMatch
     , history = []
+    , confirmingNewMatch = False
     }
 
 
@@ -76,7 +78,9 @@ init =
 
 
 type Msg
-    = StartMatch
+    = RequestNewMatch
+    | ConfirmNewMatch
+    | CancelNewMatch
     | Player1Scored
     | Player2Scored
     | Player1Fault
@@ -92,14 +96,21 @@ withHistory : Model -> Match -> Model
 withHistory model newMatch =
     { match = newMatch
     , history = model.match :: model.history
+    , confirmingNewMatch = False
     }
 
 
 update : Msg -> Model -> Model
 update msg model =
     case msg of
-        StartMatch ->
+        RequestNewMatch ->
+            { model | confirmingNewMatch = True }
+
+        ConfirmNewMatch ->
             init
+
+        CancelNewMatch ->
+            { model | confirmingNewMatch = False }
 
         Player1Scored ->
             withHistory model (updatePlayerScored Player1 model.match)
@@ -125,7 +136,7 @@ update msg model =
                     model
 
                 previous :: rest ->
-                    { match = previous, history = rest }
+                    { match = previous, history = rest, confirmingNewMatch = False }
 
 
 updatePlayerScored : Player -> Match -> Match
@@ -395,13 +406,51 @@ viewMatch model =
                        )
                 )
             ]
-        , button [ onClick StartMatch, class "mt-2 w-full cursor-pointer py-2 px-4 border text-center text-white bg-green-600" ] [ text "New Match" ]
+        , button [ onClick RequestNewMatch, class "mt-2 w-full cursor-pointer py-2 px-4 border text-center text-white bg-green-600" ] [ text "New Match" ]
+        , viewNewMatchDialog model.confirmingNewMatch
         , div [ class "mt-4 w-full text-center" ]
             [ viewSummary match "Set 1 Summary"
             , viewSummary match "Set 2 Summary"
             , viewSummary match "Match Summary"
             ]
         ]
+
+
+viewNewMatchDialog : Bool -> Html Msg
+viewNewMatchDialog isOpen =
+    if not isOpen then
+        text ""
+
+    else
+        div []
+            [ {- Backdrop: clicking it dismisses the dialog -}
+              div
+                [ class "fixed inset-0 bg-black/60 z-10"
+                , onClick CancelNewMatch
+                ]
+                []
+            , Html.node "dialog"
+                [ attribute "open" ""
+                , class "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 m-0 w-80 rounded-lg border-none bg-white p-6 text-gray-900 shadow-2xl"
+                ]
+                [ p [ class "mb-1 text-base font-semibold" ]
+                    [ text "Start a new match?" ]
+                , p [ class "mb-6 text-sm text-gray-500" ]
+                    [ text "All current progress and history will be lost." ]
+                , div [ class "flex gap-3 justify-end" ]
+                    [ button
+                        [ onClick CancelNewMatch
+                        , class "cursor-pointer rounded px-4 py-2 text-sm font-medium border border-gray-300 hover:bg-gray-100"
+                        ]
+                        [ text "Cancel" ]
+                    , button
+                        [ onClick ConfirmNewMatch
+                        , class "cursor-pointer rounded px-4 py-2 text-sm font-medium bg-green-600 text-white hover:bg-green-700"
+                        ]
+                        [ text "Start New Match" ]
+                    ]
+                ]
+            ]
 
 
 viewScorePlayer1 : Match -> Html Msg
