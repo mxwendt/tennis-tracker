@@ -677,10 +677,10 @@ viewMatch model =
         , button [ onClick RequestNewMatch, class "mt-2 w-full cursor-pointer py-2 px-4 border text-center text-white bg-green-600" ] [ text "New Match" ]
         , viewNewMatchDialog model.confirmingNewMatch
         , div [ class "mt-4 w-full text-center" ]
-            [ viewSummary "Set 1 Summary" match.set1Stats
-            , viewSummary "Set 2 Summary" match.set2Stats
-            , viewSummary "Set 3 Summary" match.set3Stats
-            , viewSummary "Match Summary" (matchTotalStats match)
+            [ viewSummary "Set 1 Summary" match.set1Stats False
+            , viewSummary "Set 2 Summary" match.set2Stats False
+            , viewSummary "Set 3 Summary" match.set3Stats False
+            , viewSummary "Match Summary" (matchTotalStats match) True
             ]
         ]
 
@@ -764,8 +764,8 @@ viewButton label msg enabled =
         [ text label ]
 
 
-viewSummary : String -> SetStats -> Html Msg
-viewSummary label stats =
+viewSummary : String -> SetStats -> Bool -> Html Msg
+viewSummary label stats open =
     let
         ( winners1, winners2 ) =
             stats.winners
@@ -782,7 +782,13 @@ viewSummary label stats =
         formatBP won played =
             String.fromInt won ++ "/" ++ String.fromInt played
     in
-    details [ class "w-full", attribute "open" "open" ]
+    details
+        (if open then
+            [ class "w-full", attribute "open" "open" ]
+
+         else
+            [ class "w-full" ]
+        )
         [ summary [ class "text-left p-4 border-b border-gray-300 cursor-pointer" ] [ text label ]
         , table [ class "w-full border border-t-0" ]
             [ viewSummaryRow "1st Serve %" "--" "--"
